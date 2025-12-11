@@ -1,0 +1,76 @@
+services:
+  n8n:
+    image: n8n-source
+    build:
+      context: .
+      dockerfile: Dockerfile.source
+    container_name: n8n-source
+    restart: unless-stopped
+    environment:
+      # Developer Settings
+      - N8N_LOG_LEVEL=${N8N_LOG_LEVEL:-info}
+      - N8N_PUBLIC_API_DISABLED=${N8N_PUBLIC_API_DISABLED:-false}
+      # Database configuration
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=n8n
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-asdgaf123ygasd12f7tq87gefe6gfwae6fgaowyg}
+      - N8N_EDITOR_BASE_URL=http://localhost:56781
+      
+      # AI Builder Configuration (CRITICAL: Need at least one of these for aiBuilder.setup=true)
+      - N8N_AI_ANTHROPIC_KEY=${N8N_AI_ANTHROPIC_KEY:-}
+      - N8N_AI_ASSISTANT_BASE_URL=${N8N_AI_ASSISTANT_BASE_URL:-}
+      
+      # License (optional - only if you have a real license)
+      - N8N_LICENSE_CERT=${N8N_LICENSE_CERT:-}
+      
+      # Task Runners Configuration
+      - N8N_RUNNERS_ENABLED=${N8N_RUNNERS_ENABLED:-true}
+      - N8N_RUNNERS_MODE=${N8N_RUNNERS_MODE:-internal}
+      - N8N_RUNNERS_MAX_PAYLOAD=${N8N_RUNNERS_MAX_PAYLOAD:-1073741824}
+      - N8N_RUNNERS_MAX_CONCURRENCY=${N8N_RUNNERS_MAX_CONCURRENCY:-10}
+      - N8N_RUNNERS_TASK_TIMEOUT=${N8N_RUNNERS_TASK_TIMEOUT:-300}
+      - N8N_RUNNERS_HEARTBEAT_INTERVAL=${N8N_RUNNERS_HEARTBEAT_INTERVAL:-30}
+      - N8N_RUNNERS_AUTH_TOKEN=${N8N_RUNNERS_AUTH_TOKEN:-asdgaf123ygasd12f7tq87gefe6gfwae6fgaowyg}
+      
+      # Enable features
+      - N8N_AI_ENABLED=true
+      - N8N_COMMUNITY_PACKAGES_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: n8n-source-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=n8n
+      - POSTGRES_PASSWORD=n8n
+      - POSTGRES_DB=n8n
+    volumes:
+      - n8n_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U n8n -d n8n"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  task-runners:
+    image: n8nio/runners:1.111.0
+    container_name: n8n-runners
+    environment:
+      - N8N_RUNNERS_TASK_BROKER_URI=http://n8n-source:5679
+      - N8N_RUNNERS_AUTH_TOKEN=${N8N_RUNNERS_AUTH_TOKEN:-asdgaf123ygasd12f7tq87gefe6gfwae6fgaowyg}
+    depends_on:
+      - n8n
+
+volumes:
+  n8n_data:
+  n8n_postgres_data:
+

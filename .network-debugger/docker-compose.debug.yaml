@@ -1,0 +1,54 @@
+services:
+  # The Network Guard Service
+  # It owns the network interface and firewall rules.
+  n8n-guard:
+    image: alpine:latest
+    container_name: n8n-guard
+    cap_add:
+      - NET_ADMIN
+    ports:
+      # We move the port exposure from n8n-source to here
+      - "56781:5678"
+    volumes:
+      - ./.network-debugger/firewall.sh:/firewall.sh
+    command: ["/bin/sh", "/firewall.sh"]
+    networks:
+      - default
+
+  # The Main Application Service
+  n8n:
+    # We override the network_mode to use the guard's network
+    network_mode: service:n8n-guard
+    
+    # We MUST clear the ports and networks defined in the base file
+    # because they conflict with network_mode: service:...
+    # In docker-compose override, lists are merged, but we can't "un-define" keys easily.
+    # HOWEVER, network_mode usually takes precedence or throws an error if ports are set.
+    # We might need to rely on Docker's behavior here. 
+    # If this fails, we will need to comment out ports in the base file (or use a cleaner base).
+    # NOTE: Docker Compose V2 allows `ports: !reset []` syntax in some versions, but standard
+    # overrides usually require the base to not have conflicting network settings if network_mode is used.
+    # A common workaround is that `network_mode` disables `ports` processing for this service.
+    
+    depends_on:
+      - n8n-guard
+      - postgres
+
+    # Build Arguments for the Proxy (Phase 2)
+    # Build Arguments for the Proxy (Phase 2)
+    build:
+      args:
+        - HTTP_PROXY=http://host.docker.internal:1981
+        - HTTPS_PROXY=http://host.docker.internal:1981
+        # We also need to pass NO_PROXY to ensure local builds don't break
+        - NO_PROXY=localhost,127.0.0.1,postgres,dl-cdn.alpinelinux.org
+        # Disable SSL verification for the proxy
+        - NODE_TLS_REJECT_UNAUTHORIZED=0
+        - npm_config_strict_ssl=false
+
+  # In debug mode, task-runners need to talk to n8n-guard
+  task-runners:
+    environment:
+      - N8N_RUNNERS_TASK_BROKER_URI=http://n8n-guard:5679
+    depends_on:
+      - n8n-guard
