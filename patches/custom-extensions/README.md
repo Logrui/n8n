@@ -6,15 +6,10 @@ This directory contains source code patches for custom extensions.
 
 | ID | Name | Target | Description |
 |----|------|--------|-------------|
+| 001 | eslint-plugin-type-stub | `packages/@n8n/node-cli/src/types/` | Type declaration stub for `@n8n/eslint-plugin-community-nodes` to fix Docker build TS errors |
 | 002 | dockerfile-build-fix | `Dockerfile.source` | Fixes turbo dependency ordering by using `--concurrency=1` |
 | 003 | ask-ai-local-anthropic | `packages/cli/src/services/ai.service.ts` | Enables Ask AI with direct Anthropic API when `N8N_AI_ANTHROPIC_KEY` is set |
 | 004 | multi-agent-canvas-fix | `packages/@n8n/ai-workflow-builder.ee/` | **✅ FIXES** multi-agent workflow builder canvas update issue |
-
-## Additional Files
-
-| File | Location | Purpose |
-|------|----------|---------|
-| `eslint-plugin-community-nodes.d.ts` | `packages/@n8n/node-cli/src/types/` | Type stub for Docker builds |
 
 ## Usage
 
@@ -47,6 +42,7 @@ docker compose build n8n 2>&1 | Select-String "Applying"
 
 # Expected output:
 # Applying custom extension patches...
+# Applying patches/custom-extensions/001-eslint-plugin-type-stub.patch
 # Applying patches/custom-extensions/002-dockerfile-build-fix.patch
 # Applying patches/custom-extensions/003-ask-ai-local-anthropic.patch
 # Applying patches/custom-extensions/004-multi-agent-canvas-fix.patch
