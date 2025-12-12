@@ -1,6 +1,6 @@
-# Whitelabel Source Patches
+# Custom Extensions Patches
 
-This directory contains source code patches for white-label/local development customizations.
+This directory contains source code patches for custom extensions.
 
 ## Current Patches
 
@@ -18,16 +18,43 @@ This directory contains source code patches for white-label/local development cu
 
 ## Usage
 
-### Apply All Patches
+### Automatic Application (Docker Build)
+
+✅ **Patches are automatically applied** during `docker compose up -d --build`
+
+The `Dockerfile.source` includes a step that automatically applies all `.patch` files in this directory before building n8n. You don't need to do anything manually!
+
+### Manual Application (Local Development)
+
+If you're developing locally without Docker, apply patches manually:
 
 ```powershell
-Get-ChildItem patches\custom-extensions\*.patch | ForEach-Object { git apply $_.FullName }
+# Apply all patches
+Get-ChildItem patches\custom-extensions\*.patch | ForEach-Object { 
+    Write-Host "Applying $($_.Name)..."
+    git apply $_.FullName 
+}
+
+# Or apply a specific patch
+git apply patches\custom-extensions\004-multi-agent-canvas-fix.patch
 ```
 
-### Verify
+### Verify Patches Were Applied (Docker)
 
 ```powershell
-docker compose build n8n
+# Check build logs for patch application
+docker compose build n8n 2>&1 | Select-String "Applying"
+
+# Expected output:
+# Applying custom extension patches...
+# Applying patches/custom-extensions/002-dockerfile-build-fix.patch
+# Applying patches/custom-extensions/003-ask-ai-local-anthropic.patch
+# Applying patches/custom-extensions/004-multi-agent-canvas-fix.patch
+```
+
+### Start Services
+
+```powershell
 docker compose up -d
 ```
 

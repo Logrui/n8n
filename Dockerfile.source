@@ -33,6 +33,20 @@ COPY scripts/block-npm-install.js ./scripts/
 
 COPY . .
 
+# Apply custom extension patches
+# These are source code patches that modify n8n's code before building
+RUN if [ -d "patches/custom-extensions" ]; then \
+    echo "Applying custom extension patches..."; \
+    for patch in patches/custom-extensions/*.patch; do \
+        if [ -f "$patch" ]; then \
+            echo "Applying $patch"; \
+            patch -p1 < "$patch" || echo "Warning: Failed to apply $patch"; \
+        fi; \
+    done; \
+else \
+    echo "No custom-extensions patches directory found, skipping..."; \
+fi
+
 # Install dependencies (including dev deps for building)
 RUN pnpm install --frozen-lockfile
 
