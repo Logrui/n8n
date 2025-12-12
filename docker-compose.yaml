@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: n8n-source
+    image: n8n-source:latest
     build:
       context: .
       dockerfile: Dockerfile.source
