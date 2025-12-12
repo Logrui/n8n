@@ -103,12 +103,32 @@ function hasMessageInUpdate(update: unknown): boolean {
 
 /** Determine if a subgraph update event should be filtered out */
 function shouldFilterSubgraphUpdate(namespace: string[], data: Record<string, unknown>): boolean {
-	if (!isFromSkippedSubgraph(namespace)) return false;
-
-	return Object.entries(data).some(([nodeName, update]) => {
-		if (shouldSkipNode(nodeName)) return false;
-		return hasMessageInUpdate(update);
+	// DEBUG: Log subgraph filtering decisions
+	console.log('[stream-processor] shouldFilterSubgraphUpdate called:', {
+		namespace,
+		dataKeys: Object.keys(data),
+		isFromSkippedSubgraph: isFromSkippedSubgraph(namespace),
 	});
+
+	if (!isFromSkippedSubgraph(namespace)) {
+		console.log('[stream-processor] NOT from skipped subgraph, allowing');
+		return false;
+	}
+
+	const shouldFilter = Object.entries(data).some(([nodeName, update]) => {
+		if (shouldSkipNode(nodeName)) {
+			console.log(`[stream-processor] Node '${nodeName}' is in SKIPPED_NODES, not filtering`);
+			return false;
+		}
+		const hasMessage = hasMessageInUpdate(update);
+		console.log(`[stream-processor] Node '${nodeName}': hasMessage=${hasMessage}`);
+		return hasMessage;
+	});
+
+	console.log(
+		`[stream-processor] Final filtering decision: ${shouldFilter ? 'FILTER OUT' : 'ALLOW'}`,
+	);
+	return shouldFilter;
 }
 
 /** Type guard for subgraph events */
@@ -162,7 +182,24 @@ export function cleanContextTags(text: string): string {
 /** Handle process_operations node update */
 function processOperationsUpdate(update: unknown): StreamOutput | null {
 	const typed = update as { workflowJSON?: unknown; workflowOperations?: unknown } | undefined;
-	if (!typed?.workflowJSON || typed.workflowOperations === undefined) return null;
+
+	// DEBUG: Log raw data received by processOperationsUpdate
+	console.log('[stream-processor] processOperationsUpdate called with:', {
+		hasTyped: !!typed,
+		hasWorkflowJSON: !!typed?.workflowJSON,
+		workflowOperationsType: typeof typed?.workflowOperations,
+		workflowOperationsValue: typed?.workflowOperations,
+		workflowJSONNodeCount: typed?.workflowJSON
+			? (typed.workflowJSON as { nodes?: unknown[] })?.nodes?.length
+			: 0,
+	});
+
+	if (!typed?.workflowJSON || typed.workflowOperations === undefined) {
+		console.log('[stream-processor] processOperationsUpdate REJECTED - missing required fields');
+		return null;
+	}
+
+	console.log('[stream-processor] processOperationsUpdate EMITTING workflow-updated chunk!');
 
 	const workflowUpdateChunk: WorkflowUpdateChunk = {
 		role: 'assistant',
@@ -205,6 +242,12 @@ function processToolChunk(chunk: unknown): StreamOutput | null {
 
 /** Process a single chunk from updates stream mode */
 function processUpdatesChunk(nodeUpdate: Record<string, unknown>): StreamOutput | null {
+	// DEBUG: Log all incoming node updates
+	console.log('[stream-processor] processUpdatesChunk received:', {
+		nodeNames: Object.keys(nodeUpdate || {}),
+		hasProcessOperations: !!nodeUpdate?.process_operations,
+	});
+
 	if (!nodeUpdate || typeof nodeUpdate !== 'object') return null;
 
 	if (nodeUpdate.delete_messages || nodeUpdate.compact_messages) {
@@ -213,6 +256,7 @@ function processUpdatesChunk(nodeUpdate: Record<string, unknown>): StreamOutput 
 
 	// Process operations emits workflow updates
 	if (nodeUpdate.process_operations) {
+		console.log('[stream-processor] Found process_operations in chunk, processing...');
 		return processOperationsUpdate(nodeUpdate.process_operations);
 	}
 

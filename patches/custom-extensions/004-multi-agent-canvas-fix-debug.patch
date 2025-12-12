@@ -1,0 +1,178 @@
+diff --git a/packages/@n8n/ai-workflow-builder.ee/src/multi-agent-workflow-subgraphs.ts b/packages/@n8n/ai-workflow-builder.ee/src/multi-agent-workflow-subgraphs.ts
+index 1111111..2222222 100644
+--- a/packages/@n8n/ai-workflow-builder.ee/src/multi-agent-workflow-subgraphs.ts
++++ b/packages/@n8n/ai-workflow-builder.ee/src/multi-agent-workflow-subgraphs.ts
+@@ -28,6 +28,7 @@ import {
+ 	handleCreateWorkflowName,
+ 	handleDeleteMessages,
+ } from './utils/state-modifier';
++import type { SimpleWorkflow } from './types/workflow';
+ import type { BuilderFeatureFlags } from './workflow-builder-agent';
+ 
+ /**
+@@ -180,12 +181,38 @@ export function createMultiAgentWorkflowWithSubgraphs(config: MultiAgentSubgrap
+ 			})
+ 			// Add process_operations node for hybrid operations approach
+ 			.addNode('process_operations', (state) => {
++				// DEBUG: Log incoming state to parent process_operations
++				console.log('[multi-agent-subgraphs] process_operations INPUT state:', {
++					workflowJSONNodeCount: state.workflowJSON?.nodes?.length ?? 0,
++					workflowOperationsCount: state.workflowOperations?.length ?? 0,
++					workflowOperations: state.workflowOperations,
++				});
++
+ 				// Process accumulated operations and clear the queue
+ 				const result = processOperations(state);
+ 
++				// DEBUG: Log processOperations result
++				console.log('[multi-agent-subgraphs] process_operations RESULT from processOperations:', {
++					resultKeys: Object.keys(result),
++					hasWorkflowJSON: 'workflowJSON' in result,
++					resultWorkflowJSONNodeCount: (result as { workflowJSON?: { nodes?: unknown[] } }).workflowJSON?.nodes?.length,
++				});
++
++				// BUG FIX: When subgraphs have already processed their operations
++				// and returned workflowOperations: [], the parent's processOperations()
++				// returns {} because there are no operations to apply. But the stream
++				// processor expects workflowJSON in the state update to emit 'workflow-updated'.
++				const processedWorkflowJSON = 'workflowJSON' in result
++					? (result as { workflowJSON: SimpleWorkflow }).workflowJSON
++					: state.workflowJSON;
++
++				// DEBUG: Log final return value
++				console.log('[multi-agent-subgraphs] process_operations FINAL return:', {
++					hasWorkflowJSON: !!processedWorkflowJSON,
++					workflowJSONNodeCount: processedWorkflowJSON?.nodes?.length ?? 0,
++				});
++
+ 				return {
+-					...result,
++					workflowJSON: processedWorkflowJSON,
+ 					workflowOperations: [], // Clear operations after processing
+ 				};
+ 			})
+diff --git a/packages/@n8n/ai-workflow-builder.ee/src/utils/stream-processor.ts b/packages/@n8n/ai-workflow-builder.ee/src/utils/stream-processor.ts
+index 3333333..4444444 100644
+--- a/packages/@n8n/ai-workflow-builder.ee/src/utils/stream-processor.ts
++++ b/packages/@n8n/ai-workflow-builder.ee/src/utils/stream-processor.ts
+@@ -103,12 +103,30 @@ function hasMessageInUpdate(update: unknown): boolean {
+ 
+ /** Determine if a subgraph update event should be filtered out */
+ function shouldFilterSubgraphUpdate(namespace: string[], data: Record<string, unknown>): boolean {
+-	if (!isFromSkippedSubgraph(namespace)) return false;
+-
+-	return Object.entries(data).some(([nodeName, update]) => {
+-		if (shouldSkipNode(nodeName)) return false;
+-		return hasMessageInUpdate(update);
+-	});
++	// DEBUG: Log subgraph filtering decisions
++	console.log('[stream-processor] shouldFilterSubgraphUpdate called:', {
++		namespace,
++		dataKeys: Object.keys(data),
++		isFromSkippedSubgraph: isFromSkippedSubgraph(namespace),
++	});
++
++	if (!isFromSkippedSubgraph(namespace)) {
++		console.log('[stream-processor] NOT from skipped subgraph, allowing');
++		return false;
++	}
++
++	const shouldFilter = Object.entries(data).some(([nodeName, update]) => {
++		if (shouldSkipNode(nodeName)) {
++			console.log(`[stream-processor] Node '${nodeName}' is in SKIPPED_NODES, not filtering`);
++			return false;
++		}
++		const hasMessage = hasMessageInUpdate(update);
++		console.log(`[stream-processor] Node '${nodeName}': hasMessage=${hasMessage}`);
++		return hasMessage;
++	});
++
++	console.log(`[stream-processor] Final filtering decision: ${shouldFilter ? 'FILTER OUT' : 'ALLOW'}`);
++	return shouldFilter;
+ }
+ 
+ /** Type guard for subgraph events */
+@@ -161,7 +179,22 @@ function processAgentNodeUpdate(nodeName: string, update: unknown): StreamOutpu
+ /** Handle process_operations node update */
+ function processOperationsUpdate(update: unknown): StreamOutput | null {
+ 	const typed = update as { workflowJSON?: unknown; workflowOperations?: unknown } | undefined;
+-	if (!typed?.workflowJSON || typed.workflowOperations === undefined) return null;
++
++	// DEBUG: Log raw data received by processOperationsUpdate
++	console.log('[stream-processor] processOperationsUpdate called with:', {
++		hasTyped: !!typed,
++		hasWorkflowJSON: !!typed?.workflowJSON,
++		workflowOperationsType: typeof typed?.workflowOperations,
++		workflowOperationsValue: typed?.workflowOperations,
++		workflowJSONNodeCount: typed?.workflowJSON ? (typed.workflowJSON as { nodes?: unknown[] })?.nodes?.length : 0,
++	});
++
++	if (!typed?.workflowJSON || typed.workflowOperations === undefined) {
++		console.log('[stream-processor] processOperationsUpdate REJECTED - missing required fields');
++		return null;
++	}
++
++	console.log('[stream-processor] processOperationsUpdate EMITTING workflow-updated chunk!');
+ 
+ 	const workflowUpdateChunk: WorkflowUpdateChunk = {
+ 		role: 'assistant',
+@@ -203,6 +236,12 @@ function processToolChunk(chunk: unknown): StreamOutput | null {
+ 
+ /** Process a single chunk from updates stream mode */
+ function processUpdatesChunk(nodeUpdate: Record<string, unknown>): StreamOutput | null {
++	// DEBUG: Log all incoming node updates
++	console.log('[stream-processor] processUpdatesChunk received:', {
++		nodeNames: Object.keys(nodeUpdate || {}),
++		hasProcessOperations: !!nodeUpdate?.process_operations,
++	});
++
+ 	if (!nodeUpdate || typeof nodeUpdate !== 'object') return null;
+ 
+ 	if (nodeUpdate.delete_messages || nodeUpdate.compact_messages) {
+@@ -210,6 +249,7 @@ function processUpdatesChunk(nodeUpdate: Record<string, unknown>): StreamOutput
+ 
+ 	// Process operations emits workflow updates
+ 	if (nodeUpdate.process_operations) {
++		console.log('[stream-processor] Found process_operations in chunk, processing...');
+ 		return processOperationsUpdate(nodeUpdate.process_operations);
+ 	}
+ 
+diff --git a/packages/frontend/editor-ui/src/features/ai/assistant/components/Agent/AskAssistantBuild.vue b/packages/frontend/editor-ui/src/features/ai/assistant/components/Agent/AskAssistantBuild.vue
+index 5555555..6666666 100644
+--- a/packages/frontend/editor-ui/src/features/ai/assistant/components/Agent/AskAssistantBuild.vue
++++ b/packages/frontend/editor-ui/src/features/ai/assistant/components/Agent/AskAssistantBuild.vue
+@@ -178,6 +178,13 @@ function onWorkflowExecuted() {
+ watch(
+ 	() => builderStore.workflowMessages,
+ 	(messages) => {
++		// DEBUG: Log all incoming workflow messages
++		console.log('[AskAssistantBuild] workflowMessages watcher triggered:', {
++			totalMessages: messages.length,
++			messageTypes: messages.map((m) => m.type),
++			workflowUpdatedCount: messages.filter((m) => m.type === 'workflow-updated').length,
++		});
++
+ 		messages
+ 			.filter((msg) => {
+ 				return msg.id && !processedWorkflowUpdates.value.has(msg.id);
+@@ -184,5 +191,13 @@ watch(
+ 			.forEach((msg) => {
++				// DEBUG: Log each unprocessed message
++				console.log('[AskAssistantBuild] Processing unprocessed message:', {
++					id: msg.id,
++					type: msg.type,
++					isWorkflowUpdated: isWorkflowUpdatedMessage(msg),
++				});
++
+ 				if (msg.id && isWorkflowUpdatedMessage(msg)) {
++					console.log('[AskAssistantBuild] APPLYING workflow-updated message:', msg.id);
+ 					processedWorkflowUpdates.value.add(msg.id);
+ 
+ 					const result = builderStore.applyWorkflowUpdate(msg.codeSnippet);
++
++					console.log('[AskAssistantBuild] applyWorkflowUpdate result:', {
++						success: result.success,
++						newNodeIdsCount: result.newNodeIds?.length ?? 0,
++					});
+ 
+ 					if (result.success) {

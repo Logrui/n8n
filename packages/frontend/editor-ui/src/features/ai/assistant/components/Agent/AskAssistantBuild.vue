@@ -178,15 +178,35 @@ function onWorkflowExecuted() {
 watch(
 	() => builderStore.workflowMessages,
 	(messages) => {
+		// DEBUG: Log all incoming workflow messages
+		console.log('[AskAssistantBuild] workflowMessages watcher triggered:', {
+			totalMessages: messages.length,
+			messageTypes: messages.map((m) => m.type),
+			workflowUpdatedCount: messages.filter((m) => m.type === 'workflow-updated').length,
+		});
+
 		messages
 			.filter((msg) => {
 				return msg.id && !processedWorkflowUpdates.value.has(msg.id);
 			})
 			.forEach((msg) => {
+				// DEBUG: Log each unprocessed message
+				console.log('[AskAssistantBuild] Processing unprocessed message:', {
+					id: msg.id,
+					type: msg.type,
+					isWorkflowUpdated: isWorkflowUpdatedMessage(msg),
+				});
+
 				if (msg.id && isWorkflowUpdatedMessage(msg)) {
+					console.log('[AskAssistantBuild] APPLYING workflow-updated message:', msg.id);
 					processedWorkflowUpdates.value.add(msg.id);
 
 					const result = builderStore.applyWorkflowUpdate(msg.codeSnippet);
+
+					console.log('[AskAssistantBuild] applyWorkflowUpdate result:', {
+						success: result.success,
+						newNodeIdsCount: result.newNodeIds?.length ?? 0,
+					});
 
 					if (result.success) {
 						// Only tidy up if new nodes are added per user message

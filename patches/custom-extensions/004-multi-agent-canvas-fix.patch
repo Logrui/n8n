@@ -1,0 +1,36 @@
+diff --git a/packages/@n8n/ai-workflow-builder.ee/src/multi-agent-workflow-subgraphs.ts b/packages/@n8n/ai-workflow-builder.ee/src/multi-agent-workflow-subgraphs.ts
+index 1111111..2222222 100644
+--- a/packages/@n8n/ai-workflow-builder.ee/src/multi-agent-workflow-subgraphs.ts
++++ b/packages/@n8n/ai-workflow-builder.ee/src/multi-agent-workflow-subgraphs.ts
+@@ -28,6 +28,7 @@ import {
+ 	handleCreateWorkflowName,
+ 	handleDeleteMessages,
+ } from './utils/state-modifier';
++import type { SimpleWorkflow } from './types/workflow';
+ import type { BuilderFeatureFlags } from './workflow-builder-agent';
+ 
+ /**
+@@ -180,12 +181,22 @@ export function createMultiAgentWorkflowWithSubgraphs(config: MultiAgentSubgrap
+ 			})
+ 			// Add process_operations node for hybrid operations approach
+ 			.addNode('process_operations', (state) => {
+-				// Process accumulated operations and clear the queue
+ 				const result = processOperations(state);
+-
++				
++				// BUG FIX: When subgraphs have already processed their operations
++				// and returned workflowOperations: [], the parent's processOperations()
++				// returns {} because there are no operations to apply. But the stream
++				// processor expects workflowJSON in the state update to emit 'workflow-updated'.
++				// Without this fix, the frontend never receives the workflow update and the
++				// canvas remains empty even though the backend successfully generated the workflow.
++				const processedWorkflowJSON = 'workflowJSON' in result
++					? (result as { workflowJSON: SimpleWorkflow }).workflowJSON
++					: state.workflowJSON;
++
+ 				return {
+-					...result,
++					workflowJSON: processedWorkflowJSON,
+ 					workflowOperations: [], // Clear operations after processing
+ 				};
+ 			})

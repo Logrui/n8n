@@ -28,6 +28,7 @@ import {
 	handleCreateWorkflowName,
 	handleDeleteMessages,
 } from './utils/state-modifier';
+import type { SimpleWorkflow } from './types/workflow';
 import type { BuilderFeatureFlags } from './workflow-builder-agent';
 
 /**
@@ -182,11 +183,45 @@ export function createMultiAgentWorkflowWithSubgraphs(config: MultiAgentSubgraph
 			})
 			// Add process_operations node for hybrid operations approach
 			.addNode('process_operations', (state) => {
+				// DEBUG: Log incoming state to parent process_operations
+				console.log('[multi-agent-subgraphs] process_operations INPUT state:', {
+					workflowJSONNodeCount: state.workflowJSON?.nodes?.length ?? 0,
+					workflowOperationsCount: state.workflowOperations?.length ?? 0,
+					workflowOperations: state.workflowOperations,
+				});
+
 				// Process accumulated operations and clear the queue
 				const result = processOperations(state);
 
+				// DEBUG: Log processOperations result
+				console.log('[multi-agent-subgraphs] process_operations RESULT from processOperations:', {
+					resultKeys: Object.keys(result),
+					hasWorkflowJSON: 'workflowJSON' in result,
+					resultWorkflowJSONNodeCount: (result as { workflowJSON?: { nodes?: unknown[] } })
+						.workflowJSON?.nodes?.length,
+				});
+
+				// BUG FIX: When processOperations returns {} (no operations to process),
+				// we still need to emit workflowJSON for the stream processor.
+				// Otherwise the frontend never receives the workflow update.
+				//
+				// The issue is that when subgraphs have already processed their operations
+				// and returned workflowOperations: [], the parent's processOperations()
+				// returns {} because there are no operations to apply. But the stream
+				// processor expects workflowJSON in the state update to emit 'workflow-updated'.
+				const processedWorkflowJSON =
+					'workflowJSON' in result
+						? (result as { workflowJSON: SimpleWorkflow }).workflowJSON
+						: state.workflowJSON;
+
+				// DEBUG: Log final return value
+				console.log('[multi-agent-subgraphs] process_operations FINAL return:', {
+					hasWorkflowJSON: !!processedWorkflowJSON,
+					workflowJSONNodeCount: processedWorkflowJSON?.nodes?.length ?? 0,
+				});
+
 				return {
-					...result,
+					workflowJSON: processedWorkflowJSON,
 					workflowOperations: [], // Clear operations after processing
 				};
 			})
