@@ -37,7 +37,8 @@ COPY . .
 RUN pnpm install --frozen-lockfile
 
 # Build the project
-RUN pnpm build
+# Use concurrency=1 to force sequential builds and ensure proper dependency ordering
+RUN pnpm build --concurrency=1
 
 # Generate licenses (optional but good practice)
 RUN node scripts/generate-third-party-licenses.mjs || true
